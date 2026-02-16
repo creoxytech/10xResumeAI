@@ -1,0 +1,273 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-primary: #6366f1;
+  /* Indigo 500 */
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e2e8f0;
+  /* Slate 200 */
+  --color-secondary-foreground: #1e293b;
+  --color-accent: #f43f5e;
+  /* Rose 500 */
+  --color-accent-foreground: #ffffff;
+  --color-background: #f8fafc;
+  /* Slate 50 */
+  --color-surface: #ffffff;
+  --color-surface-foreground: #0f172a;
+  /* Slate 900 */
+  --color-muted: #64748b;
+  /* Slate 500 */
+  --color-border: #e2e8f0;
+  /* Slate 200 */
+
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.4s ease-out;
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Custom Utilities if needed */
+@utility glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+@utility glass-dark {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Base Styles */
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-surface-foreground font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  /* Dark Mode Overrides */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background: #0f172a;
+      /* Slate 900 */
+      --color-surface: #1e293b;
+      /* Slate 800 */
+      --color-surface-foreground: #f8fafc;
+      /* Slate 50 */
+      --color-border: #334155;
+      /* Slate 700 */
+      --color-secondary: #334155;
+      --color-secondary-foreground: #f8fafc;
+      --color-muted: #94a3b8;
+      /* Slate 400 */
+    }
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-bold tracking-tight text-surface-foreground;
+  }
+}
+
+/* Component Classes */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-indigo-600 shadow-sm hover:shadow-md;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-slate-300 dark:hover:bg-slate-600;
+  }
+
+  .btn-ghost {
+    @apply hover:bg-slate-100 dark:hover:bg-slate-800 text-muted hover:text-surface-foreground;
+  }
+
+  .btn-icon {
+    @apply p-2 rounded-full;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm ring-offset-background placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow;
+  }
+
+  .card {
+    @apply rounded-xl border border-border bg-surface shadow-sm;
+  }
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Resume Editable Paper ──────────────────────── */
+/* ─── Resume Editable Paper ──────────────────────── */
+.resume-paper {
+  width: 210mm;
+  /* A4 width */
+  min-height: 297mm;
+  /* A4 height */
+  background: #ffffff;
+  padding: 12mm 14mm;
+  /* Standard A4 margins */
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+  outline: none;
+  cursor: text;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: #334155;
+  transition: box-shadow 0.25s ease;
+  transform-origin: top center;
+  /* Important for scaling */
+  margin: 0 auto;
+  /* Center in scaled wrapper */
+}
+
+.resume-paper:focus {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.12),
+    0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+
+/* Name — first line, big & bold */
+.rp-name {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  text-align: center;
+  letter-spacing: -0.5px;
+  margin-bottom: 2px;
+  line-height: 1.2;
+}
+
+/* Contact info — second line */
+.rp-contact {
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+/* Section headers — EXPERIENCE, SKILLS, etc. */
+.rp-section {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4338ca;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 16px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid #e0e7ff;
+}
+
+/* Bullet points */
+.rp-bullet {
+  font-size: 11px;
+  color: #334155;
+  padding-left: 16px;
+  margin: 2px 0;
+  line-height: 1.55;
+}
+
+.rp-bullet-dot {
+  color: #6366f1;
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+/* Metadata — dates, positions with | separators */
+.rp-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin: 2px 0;
+  font-weight: 500;
+}
+
+/* Regular text */
+.rp-text {
+  font-size: 11px;
+  color: #334155;
+  margin: 2px 0;
+  line-height: 1.55;
+}
+
+/* Empty line spacer */
+.rp-spacer {
+  height: 8px;
+  line-height: 8px;
+  font-size: 1px;
+}
+
+/* Placeholder text */
+.rp-empty {
+  color: #94a3b8;
+  text-align: center;
+  font-size: 15px;
+  padding-top: 280px;
+  font-style: italic;
+}
+
+/* Safe area support for mobile devices with notch/home indicator */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  aside.order-last {
+    padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));
+  }
+}
