@@ -8,10 +8,11 @@ import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
 import { generateResumeDesignStream, extractJsonFromResponse } from "./services/gemini";
 import pdfMake from 'pdfmake/build/pdfmake';
-import pdfFonts from 'pdfmake/build/vfs_fonts';
+// vfs_fonts.js assigns to global pdfMake.vfs, so we import it for side effects
+import 'pdfmake/build/vfs_fonts';
 
 // Handle different module formats (ESM/CJS/Bundled)
-const vfs = pdfFonts?.pdfMake?.vfs || pdfFonts?.vfs || (window.pdfMake && window.pdfMake.vfs);
+const vfs = window.pdfMake?.vfs || pdfMake.vfs;
 if (vfs) {
   pdfMake.vfs = vfs;
 } else {
