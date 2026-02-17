@@ -3,6 +3,7 @@ import Button from "./ui/Button";
 import LoadingStatus from "./LoadingStatus";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import ResumeArtifactCard from './ResumeArtifactCard';
 
 export default function ChatPanel({
   messages,
@@ -15,6 +16,7 @@ export default function ChatPanel({
   onChatKeyDown,
   onSend,
   onQuickPrompt,
+  onPreviewResume,
 }) {
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
@@ -148,6 +150,17 @@ export default function ChatPanel({
                     >
                       {message.text}
                     </ReactMarkdown>
+
+                    {/* Artifact Card (Resume Snapshot) */}
+                    {message.resumeData && (
+                      <div className="mt-3">
+                        <ResumeArtifactCard
+                          title="Resume Updated"
+                          version={null} // We could track versions if we had them
+                          onClick={() => onPreviewResume && onPreviewResume(message.resumeData)}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

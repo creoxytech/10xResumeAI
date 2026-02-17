@@ -8,9 +8,15 @@ import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
 import { generateResumeDesignStream, extractJsonFromResponse } from "./services/gemini";
 import pdfMake from 'pdfmake/build/pdfmake';
-import * as pdfFonts from 'pdfmake/build/vfs_fonts';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
 
-pdfMake.vfs = pdfFonts?.pdfMake?.vfs || pdfFonts?.default?.pdfMake?.vfs || pdfFonts;
+// Handle different module formats (ESM/CJS/Bundled)
+const vfs = pdfFonts?.pdfMake?.vfs || pdfFonts?.vfs || (window.pdfMake && window.pdfMake.vfs);
+if (vfs) {
+  pdfMake.vfs = vfs;
+} else {
+  console.warn("Could not find pdfMake vfs fonts. PDF generation might fail.");
+}
 
 const QUICK_PROMPTS = [
   "Create a one-page software engineer resume",
@@ -152,8 +158,13 @@ export default function App() {
       for await (const chunk of stream) {
         fullText += chunk;
 
-        // Hide JSON from the UI
-        const visibleText = fullText.split(":::JSON_START:::")[0].trim();
+        // Hide JSON and Artifact markers from the UI
+        let visibleText = fullText;
+        if (visibleText.includes(":::ARTIFACT:::")) {
+          visibleText = visibleText.split(":::ARTIFACT:::")[0].trim();
+        } else if (visibleText.includes(":::JSON_START:::")) {
+          visibleText = visibleText.split(":::JSON_START:::")[0].trim();
+        }
 
         setMessages((prev) => {
           const newHistory = [...prev];
@@ -167,17 +178,42 @@ export default function App() {
 
       // Extract and Apply JSON
       const newDesign = extractJsonFromResponse(fullText);
-      const finalText = fullText.split(":::JSON_START:::")[0].trim();
+
+      // Determine final visible text
+      let finalText = fullText;
+      if (finalText.includes(":::ARTIFACT:::")) {
+        finalText = finalText.split(":::ARTIFACT:::")[0].trim();
+      } else if (finalText.includes(":::JSON_START:::")) {
+        finalText = finalText.split(":::JSON_START:::")[0].trim();
+      }
 
       if (newDesign) {
         setResumeDesign(newDesign);
+        // Persist the artifact data with the message
+        await supabase.from("messages").insert([{
+          conversation_id: convoId,
+          role: "assistant",
+          text: finalText,
+          // We can store structured data in a separate column if we had one, 
+          // but for now we'll rely on the text content or just update the in-memory state.
+          // ideal: metadata: { resume_snapshot: newDesign } 
+        }]);
+
+        // Update local state to include the artifact data specifically for this message
+        // This is crucial for the UI to render the card
+        setMessages(prev => {
+          const newHistory = [...prev];
+          const lastIndex = newHistory.length - 1;
+          newHistory[lastIndex] = {
+            ...newHistory[lastIndex],
+            text: finalText,
+            resumeData: newDesign // Attach data for "Time Travel"
+          };
+          return newHistory;
+        });
+      } else {
+        await supabase.from("messages").insert([{ conversation_id: convoId, role: "assistant", text: finalText }]);
       }
-
-      setIsLoading(false);
-
-      // Save full assistant response (we might want to save just the text, or both)
-      // For now, saving just the visible text to keep history clean
-      await supabase.from("messages").insert([{ conversation_id: convoId, role: "assistant", text: finalText }]);
 
     } catch (error) {
       console.error("Streaming/Generation Error:", error);
@@ -232,6 +268,12 @@ export default function App() {
       }
     }
   }, [resumeDesign]);
+
+  const handlePreviewResume = useCallback((design) => {
+    if (design) {
+      setResumeDesign(design);
+    }
+  }, []);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -459,6 +501,7 @@ export default function App() {
             onChatKeyDown={handleChatKeyDown}
             onSend={handleSendMessage}
             onQuickPrompt={handleQuickPrompt}
+            onPreviewResume={handlePreviewResume}
           />
         </div>
 

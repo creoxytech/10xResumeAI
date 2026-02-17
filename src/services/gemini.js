@@ -37,8 +37,9 @@ CRITICAL RULES:
 - **IF THE USER REQUEST IMPLIES ANY CHANGE** to the document (adding, removing, editing, reformatting), YOU MUST ENTER ACTION MODE.
 - **ACTION MODE OUTPUT FORMAT**:
   1. Start with a brief "Action Log" (e.g., "Adding software engineer role...", "Refining summary...").
-  2. THEN, output the **FULL, VALID JSON** for the resume, wrapped in markers.
+  2. THEN, output the **ARTIFACT MARKER** and the **FULL, VALID JSON** for the resume.
 
+  :::ARTIFACT:::
   :::JSON_START:::
   { ... valid pdfmake json ... }
   :::JSON_END:::
@@ -83,44 +84,57 @@ export function extractJsonFromResponse(fullText) {
     const startMarker = ":::JSON_START:::";
     const endMarker = ":::JSON_END:::";
 
+    let jsonString = null;
+
     const startIndex = fullText.indexOf(startMarker);
     const endIndex = fullText.lastIndexOf(endMarker);
 
     if (startIndex !== -1 && endIndex !== -1 && startIndex < endIndex) {
-      const jsonString = fullText.substring(startIndex + startMarker.length, endIndex).trim()
-        .replace(/```json/gi, "")
-        .replace(/```/g, "");
+      jsonString = fullText.substring(startIndex + startMarker.length, endIndex).trim();
+    } else {
+      // Fallback: Attempt to find the last valid JSON object in the text
+      const contentMarker = '"content"';
+      const lastContentIndex = fullText.lastIndexOf(contentMarker);
 
-      const parsed = JSON.parse(jsonString);
-      return sanitizeDocDef(parsed);
-    }
+      if (lastContentIndex !== -1) {
+        const openBrace = fullText.lastIndexOf('{', lastContentIndex);
+        const closeBrace = fullText.lastIndexOf('}');
 
-    // Fallback: Attempt to find the last valid JSON object in the text
-    // This looks for the last occurrence of "content": [...] structure which is unique to our resume JSON
-    const contentMarker = '"content"';
-    const lastContentIndex = fullText.lastIndexOf(contentMarker);
-
-    if (lastContentIndex !== -1) {
-      // Try to find the opening brace for this object
-      // This is a naive heuristic but better than grabbing random text
-      const openBrace = fullText.lastIndexOf('{', lastContentIndex);
-      const closeBrace = fullText.lastIndexOf('}');
-
-      if (openBrace !== -1 && closeBrace !== -1 && openBrace < closeBrace) {
-        const jsonCandidate = fullText.substring(openBrace, closeBrace + 1);
-        try {
-          const parsed = JSON.parse(jsonCandidate);
-          // Double check it has content
-          if (parsed.content) return sanitizeDocDef(parsed);
-        } catch (e) {
-          // Fallback failed, ignore
+        if (openBrace !== -1 && closeBrace !== -1 && openBrace < closeBrace) {
+          jsonString = fullText.substring(openBrace, closeBrace + 1);
         }
       }
     }
 
-    return null;
+    if (!jsonString) return null;
+
+    // Sanitize: Remove markdown code blocks
+    jsonString = jsonString
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    // Sanitize: Remove JS comments (common in LLM output)
+    jsonString = jsonString.replace(/\/\/.*$/gm, ""); // Single line comments
+    jsonString = jsonString.replace(/\/\*[\s\S]*?\*\//g, ""); // Multi line comments
+
+    try {
+      const parsed = JSON.parse(jsonString);
+      return sanitizeDocDef(parsed);
+    } catch (e) {
+      console.warn("Partial JSON parse failed, attempting naive fix for trailing commas...");
+      // Naive fix for trailing commas: ,} -> } and ,] -> ]
+      const fixedJson = jsonString.replace(/,(\s*[}\]])/g, '$1');
+      try {
+        const parsed = JSON.parse(fixedJson);
+        return sanitizeDocDef(parsed);
+      } catch (e2) {
+        console.error("JSON Parse Error Details:", { error: e2.message, snippet: jsonString.slice(0, 100) + "..." });
+        return null;
+      }
+    }
   } catch (e) {
-    console.error("JSON Parse Error:", e);
+    console.error("JSON Extraction Fatal Error:", e);
     return null;
   }
 }
