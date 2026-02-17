@@ -6,13 +6,12 @@ import ChatPanel from "./components/ChatPanel";
 import ChatSidebar from "./components/ChatSidebar";
 import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
-import { generateResumeDesignStream, extractJsonFromResponse } from "./services/gemini";
 import pdfMake from 'pdfmake/build/pdfmake';
-// vfs_fonts.js assigns to global pdfMake.vfs, so we import it for side effects
-import 'pdfmake/build/vfs_fonts';
+// Import local vfs_fonts.js which is patched to use globalThis instead of this
+import './utils/vfs_fonts';
 
 // Handle different module formats (ESM/CJS/Bundled)
-const vfs = window.pdfMake?.vfs || pdfMake.vfs;
+const vfs = window.pdfMake?.vfs || globalThis.pdfMake?.vfs;
 if (vfs) {
   pdfMake.vfs = vfs;
 } else {
