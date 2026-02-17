@@ -6,6 +6,7 @@ import ChatPanel from "./components/ChatPanel";
 import ChatSidebar from "./components/ChatSidebar";
 import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
+import { generateResumeDesignStream } from "./services/gemini";
 import pdfMake from 'pdfmake/build/pdfmake';
 // Import local vfs_fonts.js which is patched to use globalThis instead of this
 import './utils/vfs_fonts';
