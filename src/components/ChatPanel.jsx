@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import Button from "./ui/Button";
+import LoadingStatus from "./LoadingStatus";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export default function ChatPanel({
   messages,
   chatInput,
   canSend,
   status,
+  isLoading,
   quickPrompts,
   onChatInputChange,
   onChatKeyDown,
@@ -89,11 +93,61 @@ export default function ChatPanel({
                   </div>
 
                   {/* Bubble */}
-                  <div className={`px-4 py-3 text-[13px] leading-relaxed ${isUser
-                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-md shadow-md shadow-indigo-500/20'
+                  <div className={`px-4 py-3 text-[13px] leading-relaxed prose prose-sm max-w-none dark:prose-invert ${isUser
+                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-md shadow-md shadow-indigo-500/20 prose-p:text-white prose-a:text-white prose-code:text-white prose-strong:text-white'
                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-md'
                     }`}>
-                    {message.text}
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        // 1. Checklists (Actions)
+                        ul: ({ node, className, children, ...props }) => {
+                          const hasCheckbox = children?.some(child =>
+                            child?.props?.node?.tagName === 'input' && child?.props?.type === 'checkbox'
+                          );
+                          return <ul className={`${className} ${hasCheckbox ? 'list-none pl-0 space-y-1' : 'list-disc pl-4 space-y-1'}`} {...props}>{children}</ul>
+                        },
+                        li: ({ node, children, ...props }) => {
+                          return <li className="marker:text-indigo-400" {...props}>{children}</li>
+                        },
+                        // 2. Headings
+                        h3: ({ node, ...props }) => <h3 className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-4 mb-2 first:mt-0" {...props} />,
+                        // 3. Blockquotes (Tips/Insights)
+                        blockquote: ({ node, ...props }) => (
+                          <div className="flex gap-2 my-2 pl-3 py-2 border-l-2 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-r-md">
+                            <span className="text-emerald-500">💡</span>
+                            <blockquote className="text-xs text-slate-600 dark:text-slate-300 italic not-italic" {...props} />
+                          </div>
+                        ),
+                        // 4. Code Blocks (Snippets)
+                        code: ({ node, inline, className, children, ...props }) => {
+                          const match = /language-(\w+)/.exec(className || '');
+                          if (inline) {
+                            return <code className="bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded text-[11px] font-mono text-pink-500" {...props}>{children}</code>
+                          }
+                          return (
+                            <div className="relative group my-2">
+                              <div className="absolute top-2 right-2 text-[10px] text-slate-400 font-mono">{match ? match[1] : 'text'}</div>
+                              <pre className="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto text-xs font-mono scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+                                <code className={className} {...props}>{children}</code>
+                              </pre>
+                            </div>
+                          )
+                        },
+                        // 5. Tables
+                        table: ({ node, ...props }) => (
+                          <div className="overflow-x-auto my-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <table className="w-full text-left text-xs" {...props} />
+                          </div>
+                        ),
+                        th: ({ node, ...props }) => <th className="bg-slate-50 dark:bg-slate-800 p-2 font-semibold border-b border-r border-slate-200 dark:border-slate-700 last:border-r-0" {...props} />,
+                        td: ({ node, ...props }) => <td className="p-2 border-b border-r border-slate-200 dark:border-slate-700 last:border-r-0 last:border-b-0" {...props} />,
+                        // 6. Links
+                        a: ({ node, ...props }) => <a className="text-indigo-500 hover:text-indigo-600 underline decoration-indigo-300 underline-offset-2 transition-colors" target="_blank" rel="noopener noreferrer" {...props} />,
+                      }}
+                    >
+                      {message.text}
+                    </ReactMarkdown>
                   </div>
                 </div>
               </div>
@@ -137,7 +191,7 @@ export default function ChatPanel({
             />
             <button
               onClick={onSend}
-              disabled={!canSend}
+              disabled={!canSend || isLoading}
               className="absolute right-2 bottom-2 w-8 h-8 flex items-center justify-center bg-indigo-600 text-white rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-indigo-700 active:scale-95 transition-all shadow-sm"
               aria-label="Send message"
             >
@@ -146,13 +200,8 @@ export default function ChatPanel({
               </svg>
             </button>
           </div>
-          {status && (
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">{status}</p>
-            </div>
-          )}
-          {!status && (
+          <LoadingStatus status={status} isLoading={isLoading} />
+          {!status && !isLoading && (
             <p className="text-[10px] text-center text-muted mt-2 opacity-60">
               AI can make mistakes. Review generated text.
             </p>

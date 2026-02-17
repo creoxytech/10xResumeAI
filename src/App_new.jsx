@@ -4,24 +4,21 @@ import "./styles.css";
 import AuthPrompt from "./components/AuthPrompt";
 import ChatPanel from "./components/ChatPanel";
 import ChatSidebar from "./components/ChatSidebar";
+import ArtifactPanel from "./components/ArtifactPanel";
 import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
-import { generateResumeDesignStream, extractJsonFromResponse } from "./services/gemini";
-import pdfMake from 'pdfmake/build/pdfmake';
-import * as pdfFonts from 'pdfmake/build/vfs_fonts';
-
-pdfMake.vfs = pdfFonts?.pdfMake?.vfs || pdfFonts?.default?.pdfMake?.vfs || pdfFonts;
+import { AgentOrchestrator } from "./services/agentOrchestrator";
 
 const QUICK_PROMPTS = [
   "Create a one-page software engineer resume",
-  "Rewrite summary for product manager role",
-  "Improve ATS keywords for data analyst jobs",
-  "Turn responsibilities into quantified achievements",
+  "Generate a PDF invoice template",
+  "Build a JavaScript calculator",
+  "Create a responsive landing page",
 ];
 
 const WELCOME_MSG = {
   role: "assistant",
-  text: "Share your role target, years of experience, and 3 measurable wins. I will shape it into a stronger resume.",
+  text: "I'm your AI assistant with persistent artifacts. I can generate code, PDFs, and other content that will be saved permanently in your artifact panel.",
 };
 
 export default function App() {
@@ -36,8 +33,8 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [resumeDesign, setResumeDesign] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [selectedArtifact, setSelectedArtifact] = useState(null);
+  const [orchestrator] = useState(() => new AgentOrchestrator());
 
   const activeConvoRef = useRef(activeConvoId);
   activeConvoRef.current = activeConvoId;
@@ -85,15 +82,14 @@ export default function App() {
       .order("created_at", { ascending: true });
 
     setMessages(msgs && msgs.length > 0 ? msgs : [WELCOME_MSG]);
-    setResumeDesign(null);
-    setPdfUrl(null);
+    setSelectedArtifact(null);
   }, [activeConvoId]);
 
   const createNewConversation = useCallback(async () => {
     if (!session) return;
     const { data, error } = await supabase
       .from("conversations")
-      .insert({ user_id: session.user.id, title: "New Resume" })
+      .insert({ user_id: session.user.id, title: "New Chat" })
       .select("id, title, updated_at")
       .single();
 
@@ -102,8 +98,7 @@ export default function App() {
     setConversations((prev) => [data, ...prev]);
     setActiveConvoId(data.id);
     setMessages([WELCOME_MSG]);
-    setResumeDesign(null);
-    setPdfUrl(null);
+    setSelectedArtifact(null);
     setChatInput("");
     setSidebarOpen(false);
   }, [session]);
@@ -114,8 +109,7 @@ export default function App() {
     if (activeConvoId === id) {
       setActiveConvoId(null);
       setMessages([WELCOME_MSG]);
-      setResumeDesign(null);
-      setPdfUrl(null);
+      setSelectedArtifact(null);
     }
   }, [activeConvoId]);
 
@@ -133,85 +127,42 @@ export default function App() {
     if (!normalized || !activeConvoRef.current) return;
 
     const userMsg = { role: "user", text: normalized };
-    const assistantMsg = { role: "assistant", text: "" }; // Start empty
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setChatInput("");
     setIsLoading(true);
-    setStatus(""); // Clear status, we will use the chat bubble
+    setStatus("AI agents are processing your request...");
 
     const convoId = activeConvoRef.current;
-
-    // Save user message
     await supabase.from("messages").insert([{ conversation_id: convoId, ...userMsg }]);
 
     try {
-      let fullText = "";
-      const stream = generateResumeDesignStream(normalized, "", resumeDesign);
+      const context = {
+        userId: session.user.id,
+        conversationId: convoId
+      };
+      
+      const result = await orchestrator.processUserRequest(normalized, context);
+      
+      const aiMsg = {
+        role: "assistant",
+        text: result.message,
+      };
 
-      for await (const chunk of stream) {
-        fullText += chunk;
-
-        // Hide JSON from the UI
-        const visibleText = fullText.split(":::JSON_START:::")[0].trim();
-
-        setMessages((prev) => {
-          const newHistory = [...prev];
-          const lastIndex = newHistory.length - 1;
-          if (newHistory[lastIndex].role === "assistant") {
-            newHistory[lastIndex] = { ...newHistory[lastIndex], text: visibleText };
-          }
-          return newHistory;
-        });
-      }
-
-      // Extract and Apply JSON
-      const newDesign = extractJsonFromResponse(fullText);
-      const finalText = fullText.split(":::JSON_START:::")[0].trim();
-
-      if (newDesign) {
-        setResumeDesign(newDesign);
-      }
-
+      setMessages((prev) => [...prev, aiMsg]);
+      setStatus("");
       setIsLoading(false);
-
-      // Save full assistant response (we might want to save just the text, or both)
-      // For now, saving just the visible text to keep history clean
-      await supabase.from("messages").insert([{ conversation_id: convoId, role: "assistant", text: finalText }]);
+      await supabase.from("messages").insert([{ conversation_id: convoId, ...aiMsg }]);
 
     } catch (error) {
-      console.error("Streaming/Generation Error:", error);
       const errorMsg = {
         role: "assistant",
         text: `Error: ${error.message}. Please try again.`,
       };
-      setMessages((prev) => {
-        // Replace the empty/partial message with error
-        const newHistory = [...prev];
-        newHistory[newHistory.length - 1] = errorMsg;
-        return newHistory;
-      });
+      setMessages((prev) => [...prev, errorMsg]);
+      setStatus("");
       setIsLoading(false);
     }
-  }, [resumeDesign]);
-
-  useEffect(() => {
-    if (resumeDesign) {
-      try {
-        const pdfDocGenerator = pdfMake.createPdf(resumeDesign);
-        pdfDocGenerator.getBlob((blob) => {
-          if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-          const url = URL.createObjectURL(blob);
-          setPdfUrl(url + '#toolbar=0&navpanes=0&view=FitH');
-        });
-      } catch (e) {
-        console.error("Error generating PDF preview:", e);
-      }
-    }
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    }
-  }, [resumeDesign]);
+  }, [orchestrator, session]);
 
   const handleSendMessage = () => submitMessage(chatInput);
   const handleQuickPrompt = (prompt) => submitMessage(prompt);
@@ -223,15 +174,13 @@ export default function App() {
   };
 
   const handleDownloadPdf = useCallback(() => {
-    if (resumeDesign) {
-      try {
-        pdfMake.createPdf(resumeDesign).download('resume.pdf');
-      } catch (e) {
-        console.error("Error downloading PDF:", e);
-        alert("Failed to generate PDF. The design might be invalid.");
-      }
+    if (selectedArtifact?.type === 'pdf') {
+      const link = document.createElement('a');
+      link.href = selectedArtifact.metadata.url;
+      link.download = `${selectedArtifact.title}.pdf`;
+      link.click();
     }
-  }, [resumeDesign]);
+  }, [selectedArtifact]);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -308,12 +257,12 @@ export default function App() {
               </svg>
             )}
           </button>
-          <span className="text-sm font-semibold text-surface-foreground">10x Resume AI</span>
+          <span className="text-sm font-semibold text-surface-foreground">AI Artifacts</span>
         </div>
 
         <div className="flex items-center gap-2">
-          {pdfUrl && (
-            <Button variant="ghost" size="sm" onClick={() => setPdfUrl(pdfUrl)} className="gap-2">
+          {selectedArtifact?.type === 'pdf' && (
+            <Button variant="ghost" size="sm" onClick={() => setSelectedArtifact(selectedArtifact)} className="gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -321,7 +270,7 @@ export default function App() {
               View
             </Button>
           )}
-          {resumeDesign && (
+          {selectedArtifact?.type === 'pdf' && (
             <Button variant="primary" size="sm" onClick={handleDownloadPdf} className="gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                 <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
@@ -357,32 +306,6 @@ export default function App() {
                 </svg>
                 New Chat
               </button>
-
-              {pdfUrl && (
-                <button
-                  onClick={() => { setPdfUrl(pdfUrl); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-white/5 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                  </svg>
-                  View Resume
-                </button>
-              )}
-
-              {resumeDesign && (
-                <button
-                  onClick={() => { handleDownloadPdf(); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-white/5 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                    <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-                    <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
-                  </svg>
-                  Download PDF
-                </button>
-              )}
 
               <div className="border-t border-border/50 my-1" />
 
@@ -462,55 +385,29 @@ export default function App() {
           />
         </div>
 
-        {/* PDF Preview Side Panel */}
-        <div className="hidden md:flex w-[500px] border-l border-border bg-slate-100 dark:bg-slate-900/50 flex-col shrink-0">
-          <div className="h-14 flex items-center justify-between px-4 border-b border-border bg-surface">
-            <h2 className="text-sm font-semibold text-surface-foreground">Resume Preview</h2>
-            {resumeDesign && (
-              <Button variant="primary" size="sm" onClick={handleDownloadPdf} className="gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                  <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-                  <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
-                </svg>
-                Download
-              </Button>
-            )}
-          </div>
-          <div className="flex-1 overflow-hidden flex items-center justify-center p-4">
-            {pdfUrl ? (
-              <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden">
-                <iframe
-                  src={pdfUrl}
-                  className="w-full h-full border-none"
-                  title="Resume Preview"
-                />
-              </div>
-            ) : (
-              <div className="text-center text-muted">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16 mx-auto mb-3 opacity-30">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                </svg>
-                <p className="text-sm">Your resume will appear here</p>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Artifact Panel - Always Visible */}
+        <ArtifactPanel 
+          userId={session?.user?.id} 
+          onArtifactSelect={setSelectedArtifact}
+        />
 
-        {/* Mobile PDF Preview Modal */}
-        {pdfUrl && (
+        {/* Mobile Artifact Modal */}
+        {selectedArtifact && (
           <div className="md:hidden fixed inset-0 bg-black/80 z-50 flex flex-col">
             <div className="flex items-center justify-between p-4 bg-surface border-b border-border">
-              <h2 className="text-sm font-semibold text-surface-foreground">Resume Preview</h2>
+              <h2 className="text-sm font-semibold text-surface-foreground">{selectedArtifact.title}</h2>
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" onClick={handleDownloadPdf} className="gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-                    <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
-                  </svg>
-                  PDF
-                </Button>
+                {selectedArtifact.type === 'pdf' && (
+                  <Button variant="primary" size="sm" onClick={handleDownloadPdf} className="gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                      <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+                      <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+                    </svg>
+                    PDF
+                  </Button>
+                )}
                 <button
-                  onClick={() => setPdfUrl(null)}
+                  onClick={() => setSelectedArtifact(null)}
                   className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-400"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -521,11 +418,17 @@ export default function App() {
             </div>
             <div className="flex-1 p-4">
               <div className="w-full h-full bg-white rounded-lg shadow-lg overflow-hidden">
-                <iframe
-                  src={pdfUrl}
-                  className="w-full h-full border-none"
-                  title="Resume Preview"
-                />
+                {selectedArtifact.type === 'pdf' ? (
+                  <iframe
+                    src={selectedArtifact.metadata.url}
+                    className="w-full h-full border-none"
+                    title={selectedArtifact.title}
+                  />
+                ) : (
+                  <pre className="p-4 text-sm font-mono whitespace-pre-wrap overflow-auto h-full">
+                    {selectedArtifact.code}
+                  </pre>
+                )}
               </div>
             </div>
           </div>

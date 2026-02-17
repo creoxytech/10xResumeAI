@@ -6,22 +6,22 @@ import ChatPanel from "./components/ChatPanel";
 import ChatSidebar from "./components/ChatSidebar";
 import Button from "./components/ui/Button";
 import LoadingStatus from "./components/LoadingStatus";
-import { generateResumeDesignStream, extractJsonFromResponse } from "./services/gemini";
+import { AgentOrchestrator } from "./services/agentOrchestrator";
 import pdfMake from 'pdfmake/build/pdfmake';
 import * as pdfFonts from 'pdfmake/build/vfs_fonts';
 
 pdfMake.vfs = pdfFonts?.pdfMake?.vfs || pdfFonts?.default?.pdfMake?.vfs || pdfFonts;
 
 const QUICK_PROMPTS = [
-  "Create a one-page software engineer resume",
-  "Rewrite summary for product manager role",
-  "Improve ATS keywords for data analyst jobs",
-  "Turn responsibilities into quantified achievements",
+  "Create a software engineer resume",
+  "Change to professional template",
+  "Edit my experience section",
+  "Optimize for ATS keywords",
 ];
 
 const WELCOME_MSG = {
   role: "assistant",
-  text: "Share your role target, years of experience, and 3 measurable wins. I will shape it into a stronger resume.",
+  text: "I'm your AI resume assistant with specialized agents for creation, editing, design, and optimization. What would you like to work on?",
 };
 
 export default function App() {
@@ -38,6 +38,7 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [resumeDesign, setResumeDesign] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
+  const [orchestrator] = useState(() => new AgentOrchestrator());
 
   const activeConvoRef = useRef(activeConvoId);
   activeConvoRef.current = activeConvoId;
@@ -133,67 +134,53 @@ export default function App() {
     if (!normalized || !activeConvoRef.current) return;
 
     const userMsg = { role: "user", text: normalized };
-    const assistantMsg = { role: "assistant", text: "" }; // Start empty
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setChatInput("");
     setIsLoading(true);
-    setStatus(""); // Clear status, we will use the chat bubble
+    setStatus("AI agents are analyzing your request...");
 
     const convoId = activeConvoRef.current;
-
-    // Save user message
     await supabase.from("messages").insert([{ conversation_id: convoId, ...userMsg }]);
 
     try {
-      let fullText = "";
-      const stream = generateResumeDesignStream(normalized, "", resumeDesign);
-
-      for await (const chunk of stream) {
-        fullText += chunk;
-
-        // Hide JSON from the UI
-        const visibleText = fullText.split(":::JSON_START:::")[0].trim();
-
-        setMessages((prev) => {
-          const newHistory = [...prev];
-          const lastIndex = newHistory.length - 1;
-          if (newHistory[lastIndex].role === "assistant") {
-            newHistory[lastIndex] = { ...newHistory[lastIndex], text: visibleText };
-          }
-          return newHistory;
-        });
+      const sessionContext = {
+        userId: session.user.id,
+        conversationId: convoId
+      };
+      
+      setStatus("Routing to specialized agent...");
+      const result = await orchestrator.processRequest(normalized, sessionContext);
+      
+      setStatus("Executing tools...");
+      
+      // Handle resume artifact updates
+      const resumeArtifact = result.artifacts.find(a => a.result?.artifact?.type === 'resume');
+      if (resumeArtifact) {
+        const resumeData = JSON.parse(resumeArtifact.result.artifact.code);
+        setResumeDesign(resumeData);
+        setStatus("Creating PDF preview...");
       }
 
-      // Extract and Apply JSON
-      const newDesign = extractJsonFromResponse(fullText);
-      const finalText = fullText.split(":::JSON_START:::")[0].trim();
+      const aiMsg = {
+        role: "assistant",
+        text: `✅ ${result.agentType} agent completed! ${result.reasoning}`,
+      };
 
-      if (newDesign) {
-        setResumeDesign(newDesign);
-      }
-
+      setMessages((prev) => [...prev, aiMsg]);
+      setStatus("");
       setIsLoading(false);
-
-      // Save full assistant response (we might want to save just the text, or both)
-      // For now, saving just the visible text to keep history clean
-      await supabase.from("messages").insert([{ conversation_id: convoId, role: "assistant", text: finalText }]);
+      await supabase.from("messages").insert([{ conversation_id: convoId, ...aiMsg }]);
 
     } catch (error) {
-      console.error("Streaming/Generation Error:", error);
       const errorMsg = {
         role: "assistant",
         text: `Error: ${error.message}. Please try again.`,
       };
-      setMessages((prev) => {
-        // Replace the empty/partial message with error
-        const newHistory = [...prev];
-        newHistory[newHistory.length - 1] = errorMsg;
-        return newHistory;
-      });
+      setMessages((prev) => [...prev, errorMsg]);
+      setStatus("");
       setIsLoading(false);
     }
-  }, [resumeDesign]);
+  }, [orchestrator, session]);
 
   useEffect(() => {
     if (resumeDesign) {
@@ -308,7 +295,7 @@ export default function App() {
               </svg>
             )}
           </button>
-          <span className="text-sm font-semibold text-surface-foreground">10x Resume AI</span>
+          <span className="text-sm font-semibold text-surface-foreground">Multi-Agent Resume AI</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -357,32 +344,6 @@ export default function App() {
                 </svg>
                 New Chat
               </button>
-
-              {pdfUrl && (
-                <button
-                  onClick={() => { setPdfUrl(pdfUrl); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-white/5 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                  </svg>
-                  View Resume
-                </button>
-              )}
-
-              {resumeDesign && (
-                <button
-                  onClick={() => { handleDownloadPdf(); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-white/5 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                    <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-                    <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
-                  </svg>
-                  Download PDF
-                </button>
-              )}
 
               <div className="border-t border-border/50 my-1" />
 
@@ -490,7 +451,7 @@ export default function App() {
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16 mx-auto mb-3 opacity-30">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                 </svg>
-                <p className="text-sm">Your resume will appear here</p>
+                <p className="text-sm">AI agents will generate your resume here</p>
               </div>
             )}
           </div>
